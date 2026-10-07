@@ -1,0 +1,7 @@
+# 支持 PastePing 的开发
+#
+# 本项目【全部功能免费】，赞助是纯自愿的，不解锁任何功能。
+# GitHub Sponsors 目前不支持中国内地收款，故使用爱发电。
+# 该配置会让仓库页面右侧出现赞助按钮（点击直达）。
+
+custom: ["https://afdian.com/a/pasteping"]

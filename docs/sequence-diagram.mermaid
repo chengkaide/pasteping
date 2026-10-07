@@ -1,0 +1,83 @@
+%% =====================================================================
+%% PastePing 时序图
+%% 流程 A：复制 → 检测 → 清洗 → 写回剪贴板 → 通知（含短路分支）
+%%
+%% 已删除：原先的「流程 B：输入支持者码 → 离线验签 → 持久化 → 菜单状态切换」。
+%% 2026-10-07 起「付费解锁」整层被移除，本项目不再有任何授权码、验签或
+%% 授权状态；唯一的对外付费入口是「支持开发者」，它只调用
+%% tray.open_url() 打开一个网页，**不改动任何状态**。
+%% =====================================================================
+
+%% ---------------------------------------------------------------------
+%% A. 复制 → 检测 → 清洗 → 写回剪贴板 → 通知
+%% ---------------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    participant OS as Windows
+    participant L as ClipboardListener (监听线程)
+    participant M as main.handle_text
+    participant D as detector
+    participant C as cleaner
+    participant N as Notifier
+    participant T as TrayApp
+
+    OS->>L: WM_CLIPBOARDUPDATE
+    L->>L: read_text() 重试3次
+    Note over L: (1) 抑制校验 digest==_suppress_digest 且未过期 则消费并 return<br/>(2) 内容哈希防抖 相同内容且<200ms 则 return<br/>(3) 记录 _last_digest / _last_event
+    L->>M: on_text(text)
+    M->>M: config.is_detection_active()
+
+    alt 未启用（暂停 / 总开关关）
+        M-->>L: return（静默）
+    else 启用中
+        M->>D: detect(text)
+        D-->>M: Hit | None
+        alt 无命中
+            M-->>L: return
+        else 命中
+            M->>M: config.should_emit(text)
+            alt 冷却期内
+                M-->>L: return
+            end
+            Note over M: —— 清洗分支：只看开关（授权层已整层移除）——
+            alt 清洗开关关闭（默认）
+                M->>N: notify(hit)
+                N->>T: flash_alert() + show_notification()
+                Note over N,T: 2 秒后 flash_idle()
+            else 清洗已开
+                M->>D: find_spans(text)
+                D-->>M: List_Span
+                M->>C: clean(text)
+                C-->>M: CleanResult(cleaned, removed, ratio, skipped)
+                alt skipped（移除>60% 安全阀）
+                    M->>N: notify(hit)
+                else 正常清洗
+                    M->>L: set_text(cleaned)
+                    L->>OS: OpenClipboard / EmptyClipboard / SetClipboardData
+                    Note over OS,L: 写回再次触发 WM_CLIPBOARDUPDATE<br/>被 (1) 抑制消费 → 无死循环
+                    M->>N: notify_cleaned(labels, can_undo=True)
+                    N->>T: flash_alert() + show_notification("已自动清洗…")
+                end
+            end
+        end
+    end
+
+%% ---------------------------------------------------------------------
+%% B. 「支持开发者」→ 打开赞助网页（纯自愿，不改动任何状态）
+%% ---------------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant T as TrayApp
+    participant OS as Windows 默认浏览器
+
+    U->>T: 点击「支持开发者」（菜单项）
+    T->>T: open_url(SUPPORT_URL)
+    Note over T: os.startfile → ShellExecuteW → webbrowser 三级降级
+    alt 打开成功
+        T->>OS: 浏览器打开爱发电创作者主页
+    else 三级通道都失败
+        T-->>U: 弹窗显示完整地址，请用户手动复制到浏览器
+    end
+    T->>T: diagnostics.log("open_url", ...)（只记 ok/失败，不记其他）
+    Note over T: ⚠️ 全程不写盘、不验签、不设置任何开关 —— 赞助前后功能完全一致

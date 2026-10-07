@@ -1,0 +1,7 @@
+pywin32>=306
+pystray>=0.19.5
+Pillow>=10.0.0
+python-docx>=1.1.0
+openpyxl>=3.1.0
+# 开发/测试依赖（可选）：pytest>=8.0
+# 打包依赖（可选）：pyinstaller>=6.0

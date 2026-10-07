@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安全问题 / 漏洞报告
+    url: https://github.com/chengkaide/pasteping/security/advisories/new
+    about: 请勿用公开 Issue 报告漏洞。隐私承诺被打破（如发现联网行为）也请走这里。
+  - name: 使用说明
+    url: https://github.com/chengkaide/pasteping/blob/main/docs/user-guide.md
+    about: 完整的使用、托盘菜单、日志排查说明。
+  - name: 隐私声明
+    url: https://github.com/chengkaide/pasteping/blob/main/PRIVACY.md
+    about: 程序读写哪些数据、以及你如何自己验证它不联网。

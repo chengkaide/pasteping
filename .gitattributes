@@ -1,0 +1,33 @@
+# Git 属性：统一换行符，保护二进制文件。
+#
+# 为什么需要：本项目的 `.py` / `.md` 全部以 LF 存储，而 Windows 上
+# `core.autocrlf=true`（Git for Windows 的默认值之一）会在检出时把 LF 变成 CRLF。
+# 结果是：同一个文件在 Windows 与 Linux 上 diff 出「整片改动」，
+# PR 里全是噪音，评审时看不出真正的逻辑变动。
+#
+# 铁律：**仓库内一律 LF**，检出到工作区也一律 LF。
+# 只有 Windows 专有脚本必须 CRLF，因此单独列出。
+
+* text=auto eol=lf
+
+# 二进制：禁止任何换行转换（否则文件会被损坏且几乎无法察觉）
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.exe  binary
+*.dll  binary
+*.zip  binary
+*.gz   binary
+*.tar  binary
+
+# Windows 专有脚本必须是 CRLF：某些 .bat 解析器对 LF 换行会出错
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 这些文件即使看起来像文本也不要做任何转换
+*.pem  text eol=lf
+*.mermaid text eol=lf

@@ -1,0 +1,204 @@
+classDiagram
+direction LR
+
+%% ================= 纯逻辑 / 状态（无 GUI） =================
+class config {
+    <<module 全局状态 (RLock)，零持久化>>
+    +DEFAULT_COOLDOWN : float
+    +SUPPORT_PRICE_CNY : int
+    +SUPPORT_PLATFORM_NAME : str
+    +CLEAN_ENABLED_DEFAULT : bool
+    +is_detection_active() bool
+    +get_enabled() bool
+    +set_enabled(flag) None
+    +toggle_enabled() bool
+    +pause(seconds) None
+    +resume() None
+    +seconds_until_resume() int
+    +should_emit(text, cooldown) bool
+    +clear_history() None
+    +get_clean_enabled() bool
+    +set_clean_enabled(flag) None
+    +toggle_clean_enabled() bool
+    +reset() None
+}
+
+class detector {
+    <<module, v0.1 保持不变>>
+    +CATEGORY_ALL : tuple
+    +detect(text) Hit
+    +find_spans(text) List_Span
+}
+
+class Hit {
+    <<frozen dataclass, v0.1 不变>>
+    +str category
+    +str category_label
+    +str rule
+    +str fragment
+    +str position
+}
+
+class Span {
+    <<frozen dataclass, 新增>>
+    +str category
+    +str category_label
+    +str rule
+    +int start
+    +int end
+    +str raw
+    +str position
+}
+
+class cleaner {
+    <<module, 新增>>
+    +CLEAN_MAX_REMOVAL_RATIO : float
+    +CLEAN_PLACEHOLDER : str
+    +clean(text) CleanResult
+    +undo() CleanResult
+    +has_undo() bool
+    +clear_undo() None
+}
+
+class CleanResult {
+    <<frozen dataclass, 新增>>
+    +str original_text
+    +str cleaned_text
+    +List_Span removed
+    +float removed_ratio
+    +bool skipped
+    +str summary_label
+}
+
+%% ================= 剪贴板 =================
+class clipboard_io {
+    <<module, 新增>>
+    +CF_HTML_NAME : str
+    +read_text() str
+    +read_html() str
+    +write_text(text) bool
+    +html_format_id() int
+}
+
+class ClipboardListener {
+    <<v0.1 改造>>
+    +Callable on_text
+    +str _suppress_digest
+    +float _suppress_deadline
+    +str _last_digest
+    +start() None
+    +stop() None
+    +set_text(text) bool
+    +read_html() str
+    +_handle_update() None
+    +_suppress_next(digest) None
+}
+
+%% ================= 弹窗闸门 =================
+class dialogs {
+    <<module, 新增>>
+    +MB_ICON_INFO : int
+    +MB_ICON_QUESTION : int
+    +MB_YESNO : int
+    +IDYES : int
+    +SYSTEM_DIALOG_CLASS : str
+    +is_busy() bool
+    +current_title() str
+    +begin(title) bool
+    +end() None
+    +enter_nested() None
+    +leave_nested() None
+    +reforeground() bool
+    +message(text, title) None
+    +ask_yes_no(text, title) bool
+    +guard(label) bool
+    +find_open_dialog() int
+}
+
+%% ================= 转换 =================
+class converter {
+    <<module, 新增>>
+    +CONVERT_OUTPUT_DIR : str
+    +CONVERT_FILENAME_PATTERN : str
+    +markdown_to_docx(md_text) ConvertResult
+    +clipboard_to_xlsx() ConvertResult
+    +open_result_folder() None
+    +_parse_cf_html(raw) str
+    +_parse_plain_table(text) List_List_str
+}
+
+class ConvertResult {
+    <<frozen dataclass, 新增>>
+    +bool ok
+    +str path
+    +str message
+}
+
+class HtmlTableParser {
+    <<class, converter 内部>>
+    +List_List_str rows
+    +handle_starttag(tag, attrs) None
+    +handle_data(data) None
+    +handle_endtag(tag) None
+}
+
+%% ================= 通知 / 托盘 =================
+class Notifier {
+    <<v0.1 改造>>
+    +notify(hit) None
+    +notify_cleaned(labels, can_undo) None
+    +notify_message(title, message) None
+    +_flash() None
+}
+
+class TrayApp {
+    <<v0.1 改造>>
+    +VERSION : str
+    +SUPPORT_URL : str
+    +ISSUES_URL : str
+    +Icon icon
+    +attach_listener(listener) None
+    +attach_notifier(notifier) None
+    +attach_cleaner(cleaner) None
+    +rebuild_menu() None
+    +_build_menu() Menu
+    +_on_toggle() None
+    +_on_pause_5() None
+    +_on_pause_60() None
+    +_on_resume() None
+    +_on_toggle_clean() None
+    +_on_undo_clean() None
+    +_on_convert_markdown() None
+    +_on_convert_html() None
+    +_on_open_folder() None
+    +_on_support() None
+    +_on_about() None
+    +_on_quit() None
+    +flash_alert() None
+    +flash_idle() None
+    +show_notification(message, title) None
+    +warn_listen_failed() None
+    +stop() None
+}
+
+%% ================= 关系 =================
+config ..> detector : 不 import（仅被读）
+cleaner ..> detector
+detector ..> Hit
+detector ..> Span
+cleaner ..> CleanResult
+cleaner ..> Span
+ClipboardListener ..> clipboard_io
+ClipboardListener ..> diagnostics
+converter ..> clipboard_io
+converter ..> ConvertResult
+converter ..> HtmlTableParser
+TrayApp ..> config
+TrayApp ..> converter
+TrayApp ..> dialogs
+TrayApp ..> diagnostics
+TrayApp ..> cleaner : attach_cleaner 注入（非 import）
+TrayApp ..> ClipboardListener : attach_listener 注入（非 import）
+TrayApp ..> Notifier : attach_notifier 注入（非 import）
+Notifier ..> Hit
+Notifier ..> diagnostics

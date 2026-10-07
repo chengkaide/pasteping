@@ -1,0 +1,81 @@
+name: 误报样本
+description: 一段本该正常、却被提醒（或已被自动清洗）的文本。这是本项目最有价值的反馈。
+title: "[误报] "
+labels: ["误报样本"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提供**真实样本** —— 检测类工具最大的瓶颈就是缺真实语料。
+
+        提交前请先确认：这条文本**确实会被提醒**（托盘图标变红 / 弹出通知）。
+        若你只是"觉得它可能会被提醒"，请改用普通讨论。
+
+  - type: textarea
+    id: text
+    attributes:
+      label: 触发提醒的原文
+      description: |
+        请粘贴**完整的最小文本**。可以脱敏（把真实姓名、公司名改成占位符），
+        但请**保留触发词及其前后约 20 个字符** —— 上下文是判定的关键，
+        把上下文删掉后我们往往无法复现。
+      placeholder: |
+        例如：
+        会议纪要（草案）
+        本周完成 3 项，下周计划 5 项。
+        备注：需要我帮你整理成表格吗？
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: 出现的现象
+      description: 你看到的是哪一种？
+      options:
+        - 托盘图标变红 + 弹出「敏感提醒」通知（仅提醒）
+        - 剪贴板内容被自动改写（自动清洗已开启）
+        - 其他（请在下方说明）
+    validations:
+      required: true
+
+  - type: input
+    id: rule
+    attributes:
+      label: 日志里命中的规则（可选，但很有帮助）
+      description: |
+        打开 `%APPDATA%\PastePing\pasteping.log`（启动时控制台也会打印路径），
+        找到最近一条 `rule=...`，把规则名贴过来。日志不含你的原文，可以放心打开。
+      placeholder: "例如：rule=ai_residue"
+    validations:
+      required: false
+
+  - type: textarea
+    id: why
+    attributes:
+      label: 为什么你认为它不该被提醒
+      description: 一句话即可。比如「这是正常的会议纪要，'备注'是内容的一部分而非批注」。
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PastePing 版本
+      description: 托盘菜单 →「关于」里可以看到；或写 Release 版本号 / commit。
+      placeholder: "例如：v0.2.0"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已确认这段文本**会**触发提醒（不是猜测）
+          required: true
+        - label: 文本中已不含真实个人 / 公司敏感信息（或已脱敏）
+          required: true
+        - label: 我已搜索过现有 Issue，没有重复
+          required: false
