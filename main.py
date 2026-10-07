@@ -15,6 +15,13 @@
 
 不做 argparse（不提供命令行配置面板）。**全部状态都在内存中**，
 进程不读也不写任何配置文件。
+
+⚠️ 2026-10-07 起**只允许一个实例**：真实入口 ``run_cli()`` 会先用一个命名互斥量
+抢锁，抢不到就提示用户后退出（见 :func:`_acquire_single_instance`）。
+在此之前，双击两次图标会起来**两个托盘图标、两个剪贴板监听器**，
+它们看起来一模一样却各写各的剪贴板，用户完全分不清哪个是哪个。
+锁只加在 ``run_cli()`` 上、**不**加在 :func:`main` 里 —— ``main`` 是纯装配逻辑，
+测试需要在同一个进程里反复调用它（见 ``tests/test_single_instance.py`` 的说明）。
 """
 
 from __future__ import annotations
@@ -33,6 +40,14 @@ _DEPENDENCY_HINTS = (
     "docx",
     "openpyxl",
 )
+
+# 单实例锁的互斥量名。``Local\`` = 当前登录会话即可见，不需要额外权限，
+# 正好是我们想要的范围（换用户登录互不干扰，同一用户下只允许一个）。
+# 带 ``.v1`` 便于日后万一改了锁的语义可以和旧版并存。
+_SINGLE_INSTANCE_MUTEX = "Local\\PastePing.SingleInstance.v1"
+
+# Win32 错误码：对象已存在（这里指互斥量已被别的实例创建）。
+_ERROR_ALREADY_EXISTS = 183
 
 
 def _report_missing_dependency(error: ImportError) -> int:
@@ -55,6 +70,109 @@ def _report_missing_dependency(error: ImportError) -> int:
         )
     print(f"（原始错误：{message}）")
     return 1
+
+
+def _acquire_single_instance(name: str = _SINGLE_INSTANCE_MUTEX):
+    """尝试成为本机当前登录会话里唯一的 PastePing 实例。
+
+    用**命名互斥量**而不是「扫窗口标题」或「写 pid 文件」，有三个理由：
+      * 进程无论怎么死（崩溃 / 任务管理器结束 / 断电），内核都会自动回收，
+        不会留下「锁文件还在但进程已经没了」这种需要人工清理的残留；
+      * 本项目承诺**不读也不写任何配置文件**，pid 文件会破坏这条；
+      * 「扫窗口标题」不可靠 —— 标题会被改，而且枚举别的进程窗口需要额外权限。
+
+    ``bInitialOwner`` 传 False：我们**不要求拥有**这个互斥量，
+    「锁」体现为「这个进程手里握着互斥量的句柄」。这样就不涉及线程归属
+    （``ReleaseMutex`` 必须由创建它的线程调用），也避免了「进程被强杀后
+    互斥量处于已放弃状态」这一类需要额外分支处理的语义。
+
+    Args:
+      name: 互斥量名，默认 :data:`_SINGLE_INSTANCE_MUTEX`。
+
+    Returns:
+      ``(handle, is_first)``。``is_first`` 为 True 表示本进程抢到了锁，
+      调用方有义务在退出时把 ``handle`` 交给 :func:`_release_single_instance`。
+      为 False 表示**已经有一个实例在跑**，调用方应当提示用户后退出。
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # 句柄是指针宽的：x64 下不声明 restype 会被截断成 32 位（本项目踩过同类坑，
+    # 见 dialogs 里 SetWindowPos / HWND_TOPMOST 的那次修复）。
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+
+    handle = kernel32.CreateMutexW(None, False, name)
+    # 必须用 ctypes.get_last_error()（配合 use_last_error=True）：它由 ctypes 在
+    # 调用返回的瞬间替我们存好，不会被中间的其他 API 调用冲掉。
+    already_exists = ctypes.get_last_error() == _ERROR_ALREADY_EXISTS
+
+    if not handle:
+        # 连互斥量都建不出来（极端情况，例如句柄耗尽）：
+        # **放行**而不是拒绝 —— 宁可多开一个，也不能让程序起不来。
+        return 0, True
+    return handle, not already_exists
+
+
+def _release_single_instance(handle) -> None:
+    """释放单实例锁。
+
+    Args:
+      handle: :func:`_acquire_single_instance` 返回的句柄；0 表示没有锁可放。
+    """
+    if not handle:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    try:
+        kernel32.CloseHandle(handle)
+    except Exception:
+        # 释放失败不影响正确性：进程退出时内核一样会回收。
+        pass
+
+
+def _already_running_text() -> str:
+    """「已经有一个实例在跑」的提示正文。"""
+    return (
+        "PastePing 已经在运行了，所以这次不再重复启动。\n\n"
+        "请到任务栏右下角的通知区域找到它的图标（可能要先点「显示隐藏的图标」），"
+        "在图标上右键即可操作。\n\n"
+        "（同时运行两个会让托盘里出现两个一模一样的图标，"
+        "而且两个都会改写剪贴板，容易搞不清在用哪一个。）"
+    )
+
+
+def _report_already_running() -> None:
+    """告知用户「已经有一个实例在跑」。
+
+    用户的动作是**双击图标**：如果什么都不显示，看起来就和「没启动成功」一样，
+    所以这里必须给一次看得见的回应（与「托盘菜单点击必有响应」同一条原则）。
+    弹窗失败也要退回控制台提示，绝不静默。
+    """
+    text = _already_running_text()
+    try:
+        import os
+
+        import diagnostics
+
+        # 写进同一个日志文件：万一用户说「双击没反应」，这条能立刻区分
+        # 「被单实例锁拦下了」和「压根没启动起来」。
+        diagnostics.log("startup", f"single-instance-blocked pid={os.getpid()}")
+    except Exception:
+        pass
+    print("PastePing 已经在运行，本次不再重复启动。")
+    try:
+        import dialogs
+
+        dialogs.message(text, "PastePing 已在运行")
+    except Exception:
+        # 弹不出窗（例如没有图形会话）时上面的控制台提示已经给了交代。
+        pass
 
 
 def main() -> int:
@@ -159,5 +277,27 @@ def main() -> int:
     return 0
 
 
+def run_cli() -> int:
+    """真实的进程入口：先抢单实例锁，再启动。
+
+    刻意与 :func:`main` 分开：``main`` 是**纯装配逻辑**，同一个进程里可以反复调用
+    （测试依赖这一点，见 ``tests/test_qa_v02_adversarial.py`` 的 ``_run_main_harness``）。
+    「只能有一个」是**进程级**约束，属于入口的职责，不该塞进装配函数里 ——
+    否则任何「import main 再调 main()」的地方（测试、脚本、将来的自动化）
+    都会莫名其妙地被自己的第二次调用挡住。
+
+    Returns:
+      进程退出码。抢不到锁时返回 0 —— 用户只是重复点了图标，这不是错误。
+    """
+    handle, is_first = _acquire_single_instance()
+    if not is_first:
+        _report_already_running()
+        return 0
+    try:
+        return main()
+    finally:
+        _release_single_instance(handle)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_cli())

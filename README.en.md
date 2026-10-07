@@ -181,6 +181,10 @@ Unblock-File .\PastePing.exe
 
 After launch, the app lives in the system tray (you may need to drag it out of the "hidden icons" area).
 
+> **Only one instance runs at a time.** Launching it again does not start a second copy —
+> it tells you the app is already running. Two instances would leave two identical tray
+> icons and both would rewrite the clipboard.
+
 **What the tray icon means:**
 
 - Dark grey background with a white "P" = running, idle;
