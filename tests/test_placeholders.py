@@ -150,8 +150,12 @@ def test_paywall_identifiers_absent_from_client_code():
 
 
 def test_no_goods_page_link_anywhere():
-    """会发布的文件里不得再出现爱发电**商品页**链接（``/item/``）—— 它意味着有东西在卖。"""
-    for name in ("tray.py", "config.py", "README.md", "PRIVACY.md"):
+    """会发布的文件里不得再出现爱发电**商品页**链接（``/item/``）—— 它意味着有东西在卖。
+
+    英文 README 与中文 README 是同一份对外文案，必须一并纳入守卫 ——
+    **新增对外文案文件时必须同步加进本列表**，否则守卫覆盖不到它。
+    """
+    for name in ("tray.py", "config.py", "README.md", "README.en.md", "PRIVACY.md"):
         src = _read_source(name)
         assert "afdian.com/item" not in src and "plan_id=" not in src, (
             f"{name} 仍含爱发电商品页链接；本项目已无可售商品"
@@ -164,7 +168,8 @@ def test_no_email_is_published():
     允许 ``noreply`` / 示例域名，因为它们是平台自有或占位地址，不代表可联系的真实身份。
     """
     allowed = ("noreply", "example.com")
-    for name in ("config.py", "tray.py", "main.py", "README.md", "SECURITY.md", "PRIVACY.md"):
+    for name in ("config.py", "tray.py", "main.py", "README.md", "README.en.md",
+                 "SECURITY.md", "PRIVACY.md"):
         src = _read_source(name)
         for found in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", src):
             if any(token in found for token in allowed):

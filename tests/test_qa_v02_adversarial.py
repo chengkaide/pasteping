@@ -995,8 +995,10 @@ class TestGPrivacy:
         """
         tray_src = _read_source("tray.py")
         readme = _read_source("README.md")
-        # 不得再暗示存在付费档。
-        for name, src in (("tray.py", tray_src), ("README.md", readme)):
+        readme_en = _read_source("README.en.md")
+        # 不得再暗示存在付费档（中英 README 是同一份对外文案，一并守）。
+        for name, src in (("tray.py", tray_src), ("README.md", readme),
+                          ("README.en.md", readme_en)):
             assert "基础提醒功能永久免费" not in src, (
                 f"{name} 仍在暗示「只有基础功能免费」，与全部功能免费的事实不符"
             )
@@ -1008,6 +1010,11 @@ class TestGPrivacy:
         assert "无内购" in tray_src
         assert "无功能锁" in tray_src
         assert "全部功能" in readme and "免费" in readme
+        # 英文 README 必须给出等价的免费声明，否则英文受众会以为存在付费档。
+        assert "completely free" in readme_en
+        assert "no in-app purchases" in readme_en
+        assert "no feature locks" in readme_en
+        assert "unlocks nothing" in readme_en
 
     def test_about_has_disclaimer_and_privacy(self):
         import tray
