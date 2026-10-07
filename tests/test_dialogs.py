@@ -356,3 +356,79 @@ class TestRealDialogs:
 
         assert opened == [], "已有对话框时不该再新开窗口（会叠出第二个）"
         assert raised, "被挡下时必须把已有窗口提到前台，否则用户看到的就是「点了没反应」"
+
+
+# --------------------------------------------------------------------------- #
+# 2026-10-07：用户报「『关于』点了没反应，只能从任务栏关掉」的两个根因
+# --------------------------------------------------------------------------- #
+class TestForegroundHardening:
+    """把两个根因各钉一个用例：指针宽常量陷阱 + 看守线程必须随调用收工。"""
+
+    def test_hwnd_topmost_is_pointer_wide(self):
+        """``HWND_TOPMOST`` 必须是指针宽的常量。
+
+        原实现直接写 ``-1``：ctypes 没声明 argtypes 时按 32 位整数传，
+        等于 ``0xFFFFFFFF``，不等于 ``(HWND)-1``，于是它被当成**非法窗口句柄** ——
+        实测 ``SetWindowPos`` 返回 0、``GetLastError`` 为 1400，
+        也就是说「把已有对话框提到前台」这条保证**一直是空的**。
+        """
+        import ctypes
+
+        width = ctypes.sizeof(ctypes.c_void_p) * 8
+        assert dialogs._HWND_TOPMOST.value == (1 << width) - 1, (
+            "HWND_TOPMOST 不是指针宽常量，SetWindowPos 会被拒"
+        )
+
+    def test_set_topmost_declares_argtypes(self):
+        """``_set_topmost`` 必须先声明原型，否则又会踩回同一个坑。"""
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        user32.SetWindowPos.argtypes = None
+        dialogs._set_topmost(0)  # 句柄无效、返回 False 无所谓，重点是原型被声明
+        assert user32.SetWindowPos.argtypes is not None, (
+            "没声明 argtypes，hWndInsertAfter 又会被按 32 位截断"
+        )
+
+    def test_raise_watcher_stops_when_call_returns(self, monkeypatch):
+        """看守线程必须随主调用一起收工，不能留下残余轮询线程。"""
+        seen = {}
+
+        def _fake_watcher(thread_id, title, finished):
+            finished.wait(2.0)
+            seen["finished"] = finished.is_set()
+
+        monkeypatch.setattr(dialogs, "_place_and_raise", _fake_watcher)
+        monkeypatch.setattr(dialogs, "_message_box_raw", lambda text, title, flags: 1)
+
+        dialogs.message("正文", "看守线程收工用例")
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline and "finished" not in seen:
+            time.sleep(0.02)
+
+        assert seen.get("finished") is True, "主调用返回后没有通知看守线程收工"
+        assert dialogs.is_busy() is False, "闸门没有随调用释放"
+
+    def test_message_starts_a_watcher(self, monkeypatch):
+        """``message()`` 必须真的启动看守线程 —— 否则又退回「只在任务栏闪」。"""
+        started: list = []
+        monkeypatch.setattr(
+            dialogs, "_place_and_raise", lambda thread_id, title, finished: started.append(title)
+        )
+        monkeypatch.setattr(dialogs, "_message_box_raw", lambda text, title, flags: 1)
+
+        dialogs.message("正文", "看守线程必须启动")
+
+        assert started == ["看守线程必须启动"], "没有启动看守线程，窗口不会主动抢前台"
+
+    def test_ask_yes_no_also_starts_a_watcher(self, monkeypatch):
+        """问询框同样要抢前台（它也是托盘线程上弹的模态框）。"""
+        started: list = []
+        monkeypatch.setattr(
+            dialogs, "_place_and_raise", lambda thread_id, title, finished: started.append(title)
+        )
+        monkeypatch.setattr(dialogs, "_message_box_raw", lambda text, title, flags: 6)
+
+        assert dialogs.ask_yes_no("正文", "问询框抢前台") is True
+        assert started == ["问询框抢前台"]
