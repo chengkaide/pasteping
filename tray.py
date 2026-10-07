@@ -27,7 +27,7 @@ import converter
 import dialogs
 import diagnostics
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 # 支持开发者链接（纯自愿打赏入口；与功能**完全无关**）。
 # 取值 = 爱发电「个人主页」地址，形如：
